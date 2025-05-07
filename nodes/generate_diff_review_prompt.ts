@@ -1,23 +1,9 @@
-import { sourcebot_diff, sourcebot_pr_payload, sourcebot_context, sourcebot_diff_review, sourcebot_diff_review_schema } from "../types.js";
+import { sourcebot_diff, sourcebot_context, sourcebot_diff_review_schema } from "../types.js";
 import { zodToJsonSchema } from "zod-to-json-schema";
 
-export const generate_diff_review_prompt = async (diff: sourcebot_diff, pr_payload: sourcebot_pr_payload, rules: string[]) => {
+export const generate_diff_review_prompt = async (diff: sourcebot_diff, context: sourcebot_context[], rules: string[]) => {
     console.log("Executing generate_diff_review_prompt");
-
-    const context: sourcebot_context[] = [
-        {
-            type: "pr_title",
-            description: "The title of the pull request",
-            context: pr_payload.title,
-        },
-        {
-            type: "pr_description",
-            description: "The description of the pull request",
-            context: pr_payload.description,
-        },
         
-    ];
-
     const prompt = `
     You are an expert software engineer that excells at reviewing code changes. Given the input, additional context, and rules defined below, review the code changes and provide a detailed review. The review you provide
     must conform to all of the rules defined below. The output format of your review must conform to the output format defined below.

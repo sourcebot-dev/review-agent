@@ -48,6 +48,7 @@ export const github_pr_parser = async (octokit: Octokit, payload: WebhookEventDe
     return {
         title: payload.pull_request.title,
         description: payload.pull_request.body ?? "",
+        hostDomain: "github.com",
         owner: payload.repository.owner.login,
         repo: payload.repository.name,
         file_diffs: filteredSourcebotFileDiffs,

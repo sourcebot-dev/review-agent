@@ -16,6 +16,7 @@ export type sourcebot_file_diff = z.infer<typeof sourcebot_file_diff_schema>;
 export const sourcebot_pr_payload_schema = z.object({
     title: z.string(),
     description: z.string(),
+    hostDomain: z.string(),
     owner: z.string(),
     repo: z.string(),
     file_diffs: z.array(sourcebot_file_diff_schema),
@@ -26,7 +27,7 @@ export const sourcebot_pr_payload_schema = z.object({
 export type sourcebot_pr_payload = z.infer<typeof sourcebot_pr_payload_schema>;
 
 export const sourcebot_context_schema = z.object({
-    type: z.enum(["pr_title", "pr_description", "pr_summary", "comment_chains"]),
+    type: z.enum(["pr_title", "pr_description", "pr_summary", "comment_chains", "file_content"]),
     description: z.string().optional(),
     context: z.string(),
 });
