@@ -4,15 +4,9 @@ import { createNodeMiddleware } from "@octokit/webhooks";
 import fs from "fs";
 import http from "http";
 import { WebhookEventDefinition } from "@octokit/webhooks/types";
-import parse from "parse-diff";
-import { constructBotSummaryPrompt, constructReviewFileDiffPrompt, getOpenAIResponse } from "./openai.js";
-import { z } from "zod";
-
-const reviewSchema = z.object({
-    line_start: z.number(),
-    line_end: z.number(),
-    comment: z.string(),
-});
+import { generate_pr_reviews } from './nodes/generate_pr_reviews.js';
+import { github_push_pr_reviews } from './nodes/github_push_pr_reviews.js';
+import { github_pr_parser } from './nodes/github_pr_parser.js';
 
 dotenv.config();
 const appId = process.env.APP_ID as string;
@@ -29,32 +23,13 @@ const app = new App({
     },
 });
 
-const constructChunkPatch = (chunk: parse.Chunk): string => {
-    let result = '---new_hunk---\n```\n';
-
-    // Add new changes with line numbers
-    for (const change of chunk.changes) {
-        if (change.type === 'normal' || change.type === 'add') {
-            const lineNum = change.type === 'normal' ? change.ln2 : change.ln;
-            result += `${lineNum}: ${change.content.substring(1)}\n`;
-        }
-    }
-
-    result += '```\n\n';
-    result += '---old_hunk---\n```\n';
-
-    // Add old changes with line numbers
-    for (const change of chunk.changes) {
-        if (change.type === 'normal' || change.type === 'del') {
-            const lineNum = change.type === 'normal' ? change.ln1 : change.ln;
-            result += `${lineNum}: ${change.content.substring(1)}\n`;
-        }
-    }
-
-    result += '```\n';
-
-    return result;
-}
+const rules = [
+    "Do NOT provide general feedback, summaries, explanations of changes, or praises for making good additions.",
+    "Do NOT provide any advice that is not actionable or directly related to the changes.",
+    "Focus solely on offering specific, objective insights based on the given context and refrain from making broad comments about potential impacts on the system or question intentions behind the changes.",
+    "Keep comments concise and to the point. Every comment must highlight a specific issue and provide a clear and actionable solution to the developer.",
+    "If there are no issues found on a line range, do NOT respond with any comments. This includes comments such as \"No issues found\" or \"LGTM\"."
+]
 
 async function handlePullRequestOpened({
     octokit,
@@ -65,51 +40,9 @@ async function handlePullRequestOpened({
 }) {
     console.log(`Received a pull request event for #${payload.pull_request.number}`);
 
-    const diff = await octokit.request(payload.pull_request.patch_url);
-    const parsedDiff: parse.File[] = parse(diff.data);
-
-    const botSummaryPrompt = constructBotSummaryPrompt(payload.pull_request.title, payload.pull_request.body ?? "", diff.data);
-    const botSummary = await getOpenAIResponse(botSummaryPrompt);
-
-    console.log(`################### Bot summary prompt:\n ${botSummaryPrompt}`);
-    console.log(`################### Bot summary:\n ${botSummary}`);
-    
-    const installationId = payload.installation!.id;
-    const installation = await app.getInstallationOctokit(installationId);
-
-    for (const fileDiff of parsedDiff) {
-        for (const chunk of fileDiff.chunks) {
-            const patch = constructChunkPatch(chunk);
-            const reviewFileDiffPrompt = constructReviewFileDiffPrompt(payload.pull_request.title, payload.pull_request.body ?? "", botSummary, fileDiff.to!, patch, "");
-            const response = await getOpenAIResponse(reviewFileDiffPrompt);
-            const responseArray = JSON.parse(response);
-
-            for (const review of responseArray) {
-                const reviewFileDiff = reviewSchema.parse(review);
-
-                console.log(`################### patch:\n ${patch}`);
-                console.log(`################### Review file diff prompt:\n ${reviewFileDiffPrompt}`);
-                console.log(`################### Review file diff:\n ${JSON.stringify(reviewFileDiff, null, 2)}`);
-
-                await installation.rest.pulls.createReviewComment({
-                    owner: payload.repository.owner.login,
-                    repo: payload.repository.name,
-                    pull_number: payload.pull_request.number,
-                    body: review.comment,
-                    path: fileDiff.to!,
-                    commit_id: payload.pull_request.head.sha,
-                    side: "RIGHT",
-                    ...(review.line_start === review.line_end
-                        ? { line: review.line_start }
-                        : {
-                            start_line: review.line_start,
-                            line: review.line_end,
-                            start_side: "RIGHT",
-                        }),
-                });
-            }
-        }
-    }
+    const prPayload = await github_pr_parser(octokit, payload);
+    const fileDiffReviews = await generate_pr_reviews(prPayload, rules);
+    await github_push_pr_reviews(app, prPayload, fileDiffReviews);
 }
 
 app.webhooks.on("pull_request.opened", handlePullRequestOpened);
